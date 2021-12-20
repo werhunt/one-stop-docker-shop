@@ -1,0 +1,243 @@
+version: "3"
+services:
+
+
+  gostatic:
+    container_name: gostatic 
+    image: pierrezemb/gostatic:latest
+    restart: "unless-stopped"
+    expose:
+      - "8043"
+    volumes:
+      - './gostatic:/srv/http'
+
+
+  dashmachine:
+    container_name: dashmachine
+    image: rmountjoy/dashmachine:latest
+    restart: "unless-stopped"
+    expose:
+      - "5000"
+    volumes:
+      - './dashmachine/files:/dashmachine/dashmachine/user_data'
+  
+
+  iptoasn:
+    container_name: "iptoasn"
+    image: "wildactual/iptoasn:latest"
+    restart: "unless-stopped"
+    expose:
+      - "53661"
+    environment:
+      ASN_DBURL: 'gostatic:8043'
+    depends_on: 
+      - gostatic
+  
+
+  ipchecker3000:
+    container_name: "ipchecker3000"
+    image: "wildactual/ipchecker3000"
+    restart: "unless-stopped"
+    expose:
+      - '80'
+    environment: 
+    - IPTOASN_SERVER_IP=iptoasn
+    - IPTOASN_SERVER_PORT=53661
+    depends_on: 
+      - gostatic
+      - iptoasn
+
+
+  openldap:
+    image: osixia/openldap:latest
+    container_name: openldap
+    restart: "unless-stopped"
+    domainname: "${BASE_DOMAIN}"
+    hostname: "ldap.${BASE_DOMAIN}"
+    environment:
+      LDAP_LOG_LEVEL: "256"
+      LDAP_ORGANISATION: "Example Inc."
+      LDAP_DOMAIN: "${BASE_DOMAIN}"
+      LDAP_BASE_DN: "${LDAP_BASE_DN}"
+      LDAP_ADMIN_PASSWORD: "${LDAP_ADMIN_PASSWORD}"
+      LDAP_CONFIG_PASSWORD: "config"
+      LDAP_READONLY_USER: "false"
+      LDAP_READONLY_USER_USERNAME: "readonly"
+      LDAP_READONLY_USER_PASSWORD: "readonly"
+      LDAP_RFC2307BIS_SCHEMA: "false"
+      LDAP_BACKEND: "mdb"
+      LDAP_TLS: "true"
+      LDAP_TLS_CRT_FILENAME: "ldap.crt"
+      LDAP_TLS_KEY_FILENAME: "ldap.key"
+      LDAP_TLS_CA_CRT_FILENAME: "ca.crt"
+      LDAP_TLS_ENFORCE: "false"
+      LDAP_TLS_CIPHER_SUITE: "SECURE256:-VERS-SSL3.0"
+      LDAP_TLS_PROTOCOL_MIN: "3.1"
+      LDAP_TLS_VERIFY_CLIENT: "try"
+      LDAP_REPLICATION: "false"
+      #LDAP_REPLICATION_CONFIG_SYNCPROV: "binddn="cn=admin,cn=config" bindmethod=simple credentials=$LDAP_CONFIG_PASSWORD searchbase="cn=config" type=refreshAndPersist retry="60 +" timeout=1 starttls=critical"
+      #LDAP_REPLICATION_DB_SYNCPROV: "binddn="cn=admin,$LDAP_BASE_DN" bindmethod=simple credentials=$LDAP_ADMIN_PASSWORD searchbase="$LDAP_BASE_DN" type=refreshAndPersist interval=00:00:00:10 retry="60 +" timeout=1 starttls=critical"
+      #docker-compose.ymlLDAP_REPLICATION_HOSTS: "#PYTHON2BASH:['ldap://ldap.XXXX.YYYY','ldap://ldap2.XXXX.YYYY']"
+      KEEP_EXISTING_CONFIG: "false"
+      LDAP_REMOVE_CONFIG_AFTER_SETUP: "true"
+      LDAP_SSL_HELPER_PREFIX: "ldap"
+    tty: true
+    stdin_open: true
+    volumes:
+      - ./openldap/ldap:/var/lib/ldap
+      - ./openldap/slapd:/etc/ldap/slapd.d
+      - ./openldap/certs:/container/service/slapd/assets/certs/
+    ports:
+      - "389:389"
+      - "636:636"
+
+
+  phpldapadmin:
+    image: osixia/phpldapadmin:latest
+    container_name: phpldapadmin
+    restart: "unless-stopped"
+    environment:
+      PHPLDAPADMIN_LDAP_HOSTS: "openldap"
+      PHPLDAPADMIN_HTTPS: "false"
+    expose:
+      - "80"
+    depends_on:
+      - openldap
+
+
+  self-service-password: 
+    image: engelhardtm/docker-self-service-password:latest
+    container_name: selfservicepassword
+    restart: "unless-stopped"
+    depends_on:
+      - openldap
+    expose:
+      - '80'
+    volumes:
+      - ./self-service-password/config.inc.php:/var/www/html/conf/config.inc.php
+
+
+  nginx-proxy-manager:
+    image: 'jc21/nginx-proxy-manager:latest'
+    container_name: nginxproxymanager
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '81:81'
+      - '443:443'
+    environment:
+      DB_MYSQL_HOST: "nginx-proxy-manager_db"
+      DB_MYSQL_PORT: '3306'
+      DB_MYSQL_USER: "npm"
+      DB_MYSQL_PASSWORD: "${DB_MYSQL_PASSWORD}"
+      DB_MYSQL_NAME: "npm"
+    volumes:
+      - ./nginx-proxy-manager/data:/data
+      - ./nginx-proxy-manager/letsencrypt:/etc/letsencrypt
+
+
+  nginx-proxy-manager_db:
+    image: 'jc21/mariadb-aria:latest'
+    container_name: nginx-proxy-manager_db
+    restart: unless-stopped
+    expose:
+      - '3306'
+    environment:
+      MYSQL_ROOT_PASSWORD: '${DB_MYSQL_PASSWORD}'
+      MYSQL_DATABASE: 'npm'
+      MYSQL_USER: 'npm'
+      MYSQL_PASSWORD: '${DB_MYSQL_PASSWORD}'
+    volumes:
+      - ./nginx-proxy-manager_db/data/mysql:/var/lib/mysql
+      
+     
+  scylladb:
+    image: scylladb/scylla
+    container_name: scylladb
+    restart: unless-stopped
+    volumes:
+      - ./scylla/data:/var/lib/scylla
+    command: --smp 1 --memory 4G
+    
+    
+  thehive:
+    image: "thehiveproject/thehive4:latest"
+    user: "root"
+    container_name: thehive4
+    restart: unless-stopped
+    depends_on:
+      - scylladb
+    volumes:
+      - ./thehive/application.conf:/etc/thehive/application.conf
+      - ./thehive/data:/opt/thp/thehive/data
+      - ./thehive/index:/opt/thp/thehive/index
+    command: "--no-config --no-config-secret"
+   
+
+  rocketchat:
+    image: registry.rocket.chat/rocketchat/rocket.chat:latest
+    container_name: rocketchat
+    command: >
+      bash -c
+        "for i in `seq 1 30`; do
+          node main.js &&
+          s=$$? && break || s=$$?;
+          echo \"Tried $$i times. Waiting 5 secs...\";
+          sleep 5;
+        done; (exit $$s)"
+    restart: unless-stopped
+    volumes:
+      - ./rocketchat/uploads:/app/uploads
+    environment:
+      PORT: '3000'
+      ROOT_URL: 'https://rc.${BASE_DOMAIN}'
+      MONGO_URL: 'mongodb://mongo:27017/rocketchat'
+      MONGO_OPLOG_URL: 'mongodb://mongo:27017/local'
+      Accounts_UseDNSDomainCheck: 'False'
+      ADMIN_USERNAME: 'rc_admin'
+      ADMIN_EMAIL: 'rc_admin@${BASE_DOMAIN}'
+      ADMIN_PASS: '${LDAP_ADMIN_PASSWORD}'
+      OVERWRITE_SETTING_Show_Setup_Wizard: 'completed'
+    depends_on:
+      - mongo
+    expose:
+      - '3000'
+
+  mongo:
+    image: mongo:4.0
+    container_name: mongo
+    restart: unless-stopped
+    volumes:
+     - ./rocketchat/data/db:/data/db
+     #- ./data/dump:/dump
+    command: mongod --smallfiles --oplogSize 128 --replSet rs0 --storageEngine=mmapv1
+
+  # this container's job is just run the command to initialize the replica set.
+  # it will run the command and remove himself (it will not stay running)
+  mongo-init-replica:
+    image: mongo:4.0
+    command: >
+      bash -c
+        "for i in `seq 1 30`; do
+          mongo mongo/rocketchat --eval \"
+            rs.initiate({
+              _id: 'rs0',
+              members: [ { _id: 0, host: 'mongo:27017' } ]})\" &&
+          s=$$? && break || s=$$?;
+          echo \"Tried $$i times. Waiting 5 secs...\";
+          sleep 5;
+        done; (exit $$s)"
+    depends_on:
+      - mongo
+
+#  uptime-kuma:
+#    image: 'louislam/uptime-kuma:1'
+#    container_name: uptime-kuma
+#    restart: unless-stopped
+#    environment:
+#      - NODE_EXTRA_CA_CERTS=/certs/fullchain.crt
+#    volumes:
+#      - ./uptime-kuma:/app/data
+#      - ./uptime-kuma/certs:/certs:ro
+#    expose:
+#      - '3001'

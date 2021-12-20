@@ -1,0 +1,54 @@
+# Secret Key
+# The secret key is used to secure cryptographic functions.
+# WARNING: If you deploy your application on several servers, make sure to use the same key.
+play.http.secret.key="VVVV"
+
+# JanusGraph
+db {
+  provider: janusgraph
+  janusgraph {
+    storage {
+      backend: cql
+      hostname: ["scylladb"]
+
+      cql {
+        cluster-name: thp       # cluster name
+        keyspace: thehive           # name of the keyspace
+        read-consistency-level: ONE
+        write-consistency-level: ONE
+      }
+    }
+
+    ## Index configuration
+    index {
+      search {
+        backend: lucene
+        directory: /opt/thp/thehive/index
+      }
+    }
+  }
+}
+
+storage {
+   provider: localfs
+   localfs.location: /opt/thp/thehive/data
+}
+
+auth {
+  providers: [
+    {name: session}
+    {name: basic, realm: thehive}
+    {name: local}
+    {
+      name: ldap
+      hosts: [openldap]
+      bindDN: "cn=admin,YYYY"
+      bindPW: "ZZZZ"
+      baseDN: "YYYY"
+      filter:  "(mail={0})"
+      useSSL: false
+    }
+  ]
+}
+
+play.http.parser.maxDiskBuffer: 1GB
