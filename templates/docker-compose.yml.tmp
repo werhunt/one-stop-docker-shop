@@ -29,7 +29,8 @@ services:
     expose:
       - "53661"
     environment:
-      ASN_DBURL: 'gostatic:8043'
+      IPTOASN_DBURL: 'http://gostatic:8043/ip2asn-combined.tsv.gz'
+      IPTOASN_PORT: '53661'
     depends_on: 
       - gostatic
   
