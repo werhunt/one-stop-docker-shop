@@ -8,6 +8,8 @@ import secrets
 import getpass
 from subprocess import call
 from sys import exit
+
+
 ASN_URL = 'https://iptoasn.com/data/ip2asn-combined.tsv.gz'
 CYBERCHEF_URL = 'https://github.com/gchq/CyberChef/releases/download/v9.32.3/CyberChef_v9.32.3.zip'
 WORKING_DIR = os.environ.get('PWD')
