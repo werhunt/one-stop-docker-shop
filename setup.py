@@ -14,6 +14,7 @@ WORKING_DIR = os.environ.get('PWD')
 FILESHARE_DIR = f'{WORKING_DIR}/gostatic/'
 TOKEN_LENGTH = 16
 
+
 def get_pass():
     count = 0
     while count < 3:
@@ -26,6 +27,7 @@ def get_pass():
         if pass1 != pass2:
             print('Passwords do not match')
             count += 1
+
 
 def get_cyberchef():
     try:
@@ -52,16 +54,19 @@ def build_args():
         help='Base Domain (ex. example.com)',
         required=True
     )
+
+    #### Change ME
     parser.add_argument(
         '-p',
         '--password',
-        help='Set OpenLDAP admin password [default: admin]',
+        help=' OpenLDAP admin password [default: admin]',
         action='store_true',
-        default=False,
+        default=True,
         required=False
     )
     global args
     args = parser.parse_args()
+
 
 def copy_files():
     command = 'sudo chmod -R 777 thehive'
@@ -84,7 +89,8 @@ def set_pass():
     elif args.password:
         passwd = get_pass()
         return passwd
-    s
+
+
 def update_file(fname, pattern, text):
     t =''
     with open(fname, 'r') as f:
@@ -93,15 +99,17 @@ def update_file(fname, pattern, text):
     with open(fname, 'w') as f:
         f.write(t)
 
+
 def get_asn_tsv():
     file_name = ASN_URL.split("/")[-1]
     abs_path = pathlib.Path(f'{FILESHARE_DIR}{file_name}')
 
     # Try to make gostatic dir
     try:
-            os.mkdir(FILESHARE_DIR)
+        os.mkdir(FILESHARE_DIR)
     except FileExistsError:
         pass
+
 
     if abs_path.exists():
         while True:
@@ -130,6 +138,7 @@ def check_root():
 
 
 if __name__ == '__main__':
+
     check_root()
     build_args()
     get_asn_tsv()
