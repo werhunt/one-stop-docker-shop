@@ -13,7 +13,7 @@ from sys import exit
 ASN_URL = 'https://iptoasn.com/data/ip2asn-combined.tsv.gz'
 CYBERCHEF_URL = 'https://github.com/gchq/CyberChef/releases/download/v9.32.3/CyberChef_v9.32.3.zip'
 WORKING_DIR = os.environ.get('PWD')
-FILESHARE_DIR = f'{WORKING_DIR}/gostatic/'
+FILESHARE_DIR = f'{WORKING_DIR}/data/gostatic/'
 TOKEN_LENGTH = 16
 
 
@@ -33,8 +33,8 @@ def get_pass():
 
 def get_cyberchef():
     try:
-        os.mkdir('gostatic/cyberchef')
-        os.chdir('gostatic/cyberchef')
+        os.mkdir('data/gostatic/cyberchef')
+        os.chdir('data/gostatic/cyberchef')
         cyberchef = requests.get(CYBERCHEF_URL)
         with open('cyberchef.zip', 'wb') as f:
             f.write(cyberchef.content)
@@ -73,16 +73,19 @@ def build_args():
 def copy_files():
     command = 'sudo chmod -R 777 thehive'
     try:
-        os.mkdir('self-service-password')
-        os.mkdir('thehive')
+        os.mkdir('configs')
+        os.mkdir('configs/self-service-password')
+        os.mkdir('configs/thehive')
+        os.mkdir('configs/cortex')
 
     except FileExistsError:
         pass
-    shutil.copy('templates/.env.tmp', '.env')
+    shutil.copy('templates/env.tmp', '.env')
     os.chmod('.env', 0o600)
-    shutil.copy('templates/config.inc.php.tmp', 'self-service-password/config.inc.php')
+    shutil.copy('templates/config.inc.php.tmp', 'configs/self-service-password/config.inc.php')
     shutil.copy('templates/docker-compose.yml.tmp', 'docker-compose.yml')
-    shutil.copy('templates/application.conf.tmp', 'thehive/application.conf')
+    shutil.copy('templates/application.thehive.conf.tmp', 'configs/thehive/application.conf')
+    shutil.copy('templates/application.cortex.conf.tmp', 'configs/cortex/application.conf')
 
     
 def set_pass():
@@ -108,6 +111,7 @@ def get_asn_tsv():
 
     # Try to make gostatic dir
     try:
+        os.mkdir('data')
         os.mkdir(FILESHARE_DIR)
     except FileExistsError:
         pass
@@ -161,13 +165,13 @@ if __name__ == '__main__':
         if c < len(ldap_l):
             c += 1
             ldap += ','
-    update_file('thehive/application.conf', 'VVVV', secrets.token_urlsafe(TOKEN_LENGTH))
-    update_file('thehive/application.conf', 'YYYY', ldap)
-    update_file('thehive/application.conf', 'ZZZZ', passw)            
+    update_file('configs/thehive/application.conf', 'VVVV', secrets.token_urlsafe(TOKEN_LENGTH))
+    update_file('configs/thehive/application.conf', 'YYYY', ldap)
+    update_file('configs/thehive/application.conf', 'ZZZZ', passw)            
     update_file('.env', 'WWWW', secrets.token_urlsafe(TOKEN_LENGTH))
     update_file('.env', 'XXXX', domain)
     update_file('.env', 'YYYY', ldap)
     update_file('.env', 'ZZZZ', passw)
-    update_file('self-service-password/config.inc.php', 'YYYY', ldap)
-    update_file('self-service-password/config.inc.php', 'ZZZZ', passw)
+    update_file('configs/self-service-password/config.inc.php', 'YYYY', ldap)
+    update_file('configs/self-service-password/config.inc.php', 'ZZZZ', passw)
 

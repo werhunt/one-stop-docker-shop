@@ -9,60 +9,6 @@ db {
   janusgraph {
     storage {
       backend: cql
-      hostname: ["scylladb"]
-
-      cql {
-        cluster-name: thp       # cluster name
-        keyspace: thehive           # name of the keyspace
-        read-consistency-level: ONE
-        write-consistency-level: ONE
-      }
-    }
-
-    ## Index configuration
-    index {
-      search {
-        backend: lucene
-        directory: /opt/thp/thehive/index
-      }
-    }
-  }
-}
-
-storage {
-   provider: localfs
-   localfs.location: /opt/thp/thehive/data
-}
-
-auth {
-  providers: [
-    {name: session}
-    {name: basic, realm: thehive}
-    {name: local}
-    {
-      name: ldap
-      hosts: [openldap]
-      bindDN: "cn=admin,YYYY"
-      bindPW: "ZZZZ"
-      baseDN: "YYYY"
-      filter:  "(mail={0})"
-      useSSL: false
-    }
-  ]
-}
-
-play.http.parser.maxDiskBuffer: 1GB
-
-
-
-play.http.secret.key="t5EeDXh2dEtJxohh"
-
-# JanusGraph
-db {
-  provider: janusgraph
-  janusgraph {
-    storage {
-      backend: cql
       hostname: ["cassandra"]
 
       cql {
@@ -87,6 +33,25 @@ storage {
    provider: localfs
    localfs.location: /opt/data
 }
+
+auth {
+  providers: [
+    {name: session}
+    {name: basic, realm: thehive}
+    {name: local}
+    {
+      name: ldap
+      hosts: [openldap]
+      bindDN: "cn=admin,YYYY"
+      bindPW: "ZZZZ"
+      baseDN: "YYYY"
+      filter:  "(mail={0})"
+      useSSL: false
+    }
+  ]
+}
+
+play.http.parser.maxDiskBuffer: 1GB
 
 play.http.parser.maxDiskBuffer: 50MB
 
@@ -144,3 +109,5 @@ notification.webhook.endpoints = [
     excludedTheHiveOrganisations: []
   }
 ]
+
+

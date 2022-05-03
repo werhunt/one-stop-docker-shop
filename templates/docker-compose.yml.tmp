@@ -1,8 +1,6 @@
 version: "3"
 
-
-ervices:
-
+services:
 
   gostatic:
     container_name: gostatic 
@@ -11,7 +9,7 @@ ervices:
     expose:
       - "8043"
     volumes:
-      - './gostatic:/srv/http'
+      - './data/gostatic:/srv/http'
 
 
   heimdall:
@@ -22,10 +20,10 @@ ervices:
       - PGID=1000
       - TZ=Europe/London
     volumes:
-      - </path/to/appdata/config>:/config
-    ports:
-      - 80:80
-      - 443:443
+      - ./data/heimdall:/config
+    expose:
+      - 80
+      - 443
     restart: unless-stopped
 
 
@@ -36,51 +34,51 @@ ervices:
   #   expose:
   #     - "5000"
   #   volumes:
-  #     - './dashmachine/files:/dashmachine/dashmachine/user_data'
+  #     - './data/dashmachine/files:/dashmachine/dashmachine/user_data'
 
 
-elasticsearch:
-    image: 'docker.elastic.co/elasticsearch/elasticsearch:7.11.1'
-    container_name: elasticsearch
-    restart: unless-stopped
-    ports:
-      - '0.0.0.0:9200:9200'
-    environment:
-      - http.host=0.0.0.0
-      - discovery.type=single-node
-      - cluster.name=hive
-      - script.allowed_types= inline
-      - thread_pool.search.queue_size=100000
-      - thread_pool.write.queue_size=10000
-      - gateway.recover_after_nodes=1
-      - xpack.security.enabled=false
-      - bootstrap.memory_lock=true
-      - 'ES_JAVA_OPTS=-Xms256m -Xmx256m'
-    ulimits:
-      nofile:
-        soft: 65536
-        hard: 65536
-    volumes:
-      - ./vol/elasticsearch_data:/usr/share/elasticsearch/data
-      - ./vol/elasticsearch_logs:/usr/share/elasticsearch/logs
+  elasticsearch:
+      image: 'docker.elastic.co/elasticsearch/elasticsearch:7.11.1'
+      container_name: elasticsearch
+      restart: unless-stopped
+      expose:
+        - '9200'
+      environment:
+        - http.host=0.0.0.0
+        - discovery.type=single-node
+        - cluster.name=hive
+        - script.allowed_types= inline
+        - thread_pool.search.queue_size=100000
+        - thread_pool.write.queue_size=10000
+        - gateway.recover_after_nodes=1
+        - xpack.security.enabled=false
+        - bootstrap.memory_lock=true
+        - 'ES_JAVA_OPTS=-Xms256m -Xmx256m'
+      ulimits:
+        nofile:
+          soft: 65536
+          hard: 65536
+      volumes:
+        - ./data/elasticsearch/elasticsearch_data:/usr/share/elasticsearch/data
+        - ./data/elasticsearch/elasticsearch_logs:/usr/share/elasticsearch/logs
 
 
-### Optional
-  # kibana:
-  #   image: 'docker.elastic.co/kibana/kibana:7.11.1'
-  #   container_name: kibana
-  #   restart: unless-stopped
-  #   depends_on:
-  #     - elasticsearch
-  #   ports:
-  #     - '5601:5601'
+  ### Optional
+    # kibana:
+    #   image: 'docker.elastic.co/kibana/kibana:7.11.1'
+    #   container_name: kibana
+    #   restart: unless-stopped
+    #   depends_on:
+    #     - elasticsearch
+    #   ports:
+    #     - '5601:5601'
 
   cortex:
     image: 'thehiveproject/cortex:latest'
     container_name: cortex
     restart: unless-stopped
     volumes:
-      - ./cortex/application.conf:/etc/cortex/application.conf
+      - ./configs/cortex/application.conf:/etc/cortex/application.conf
       - /var/run/docker.sock:/var/run/docker.sock
       - /tmp:/tmp
     environment:
@@ -88,8 +86,8 @@ elasticsearch:
       - https_proxy=${https_proxy}      
     depends_on:
       - elasticsearch
-    ports:
-      - '0.0.0.0:9001:9001'
+    expose:
+      - '9001'
 
   cassandra:
     image: cassandra:3.11
@@ -101,7 +99,7 @@ elasticsearch:
       - HEAP_NEWSIZE=1G
       - CASSANDRA_CLUSTER_NAME=thp
     volumes:
-      - ./vol/cassandra-data:/var/lib/cassandra/data
+      - ./data/thehive/cassandra-data:/var/lib/cassandra/data
 
   thehive:
     image: 'thehiveproject/thehive4:latest'
@@ -109,12 +107,12 @@ elasticsearch:
     restart: unless-stopped
     depends_on:
       - cassandra
-    ports:
-      - '0.0.0.0:9000:9000'
+    expose:
+      - '9000'
     volumes:
-      - ./thehive/application.conf:/etc/thehive/application.conf
-      - ./vol/data:/opt/data
-      - ./vol/index:/opt/index
+      - ./configs/thehive/application.conf:/etc/thehive/application.conf
+      - ./data/thehive/thehive_data:/opt/data
+      - ./data/thehive/index:/opt/index
     command: '--no-config --no-config-secret'
 
   redis:
@@ -122,9 +120,9 @@ elasticsearch:
     container_name: redis
     restart: unless-stopped
 
-  db:
+  misp_mysql:
     image: mysql:latest
-    container_name: db
+    container_name: misp_mysql
     restart: unless-stopped
     command: --default-authentication-plugin=mysql_native_password
     restart: unless-stopped
@@ -134,7 +132,7 @@ elasticsearch:
       - "MYSQL_ROOT_PASSWORD=password"
       - "MYSQL_DATABASE=misp"
     volumes:
-      - ./vol/mysql:/var/lib/mysql
+      - ./data/misp_mysql:/var/lib/mysql
 
   misp:
     image: coolacid/misp-docker:core-latest
@@ -142,10 +140,10 @@ elasticsearch:
     restart: unless-stopped
     depends_on:
       - redis
-      - db
-    ports:
-      - "80:80"
-      - "443:443"
+      - misp_mysql
+    expose:
+      - "80"
+      - "443"
     environment:
       - "HOSTNAME=https://localhost"
       - "REDIS_FQDN=redis"
@@ -160,31 +158,33 @@ elasticsearch:
       - "REDIS_BACKEND=redis"
     depends_on:
       - redis
-      - db
+      - misp_mysql
+
 
   frontend:
     image: ghcr.io/frikky/shuffle-frontend:0.8.64
     container_name: shuffle-frontend
     hostname: shuffle-frontend
-    ports:
-      - "3001:80"
-      - "3443:443"
+    expose:
+      - "80"
+      - "443"
     environment:
       - BACKEND_HOSTNAME=shuffle-backend
     restart: unless-stopped
     depends_on:
-      - backend
-  
-  backend:
+      - shuffle-backend
+
+
+  shuffle-backend:
     image: ghcr.io/frikky/shuffle-backend:0.8.64
     container_name: shuffle-backend
     hostname: shuffle-backend
-    ports:
-      - "5001:5001"
+    expose:
+      - "5001"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./vol/shuffle-apps:/shuffle-apps
-      - ./vol/shuffle-files:/shuffle-files
+      - ./data/shuffle/shuffle-apps:/shuffle-apps
+      - ./data/shuffle/shuffle-files:/shuffle-files
     environment:
       - DATASTORE_EMULATOR_HOST=shuffle-database:8000
       - SHUFFLE_APP_HOTLOAD_FOLDER=./shuffle-apps
@@ -199,8 +199,9 @@ elasticsearch:
       - HTTPS_PROXY=
     restart: unless-stopped
     depends_on:
-      - database
-  
+      - shuffle-database
+
+
   orborus:
     image: ghcr.io/frikky/shuffle-orborus:0.8.63
     container_name: shuffle-orborus
@@ -225,15 +226,15 @@ elasticsearch:
     restart: unless-stopped
   
 
-  database:
+  shuffle-database:
     image: frikky/shuffle:database
     container_name: shuffle-database
     hostname: shuffle-database
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     restart: unless-stopped
     volumes:
-      - ./vol/shuffle-database:/etc/shuffle
+      - ./data/shuffle/shuffle-database:/etc/shuffle
 
   
   iptoasn:
@@ -299,9 +300,9 @@ elasticsearch:
     tty: true
     stdin_open: true
     volumes:
-      - ./openldap/ldap:/var/lib/ldap
-      - ./openldap/slapd:/etc/ldap/slapd.d
-      - ./openldap/certs:/container/service/slapd/assets/certs/
+      - ./data/openldap/ldap:/var/lib/ldap
+      - ./data/openldap/slapd:/etc/ldap/slapd.d
+      - ./data/openldap/certs:/container/service/slapd/assets/certs/
     ports:
       - "389:389"
       - "636:636"
@@ -329,7 +330,7 @@ elasticsearch:
     expose:
       - '80'
     volumes:
-      - ./self-service-password/config.inc.php:/var/www/html/conf/config.inc.php
+      - ./configs/self-service-password/config.inc.php:/var/www/html/conf/config.inc.php
 
 
   nginx-proxy-manager:
@@ -347,8 +348,8 @@ elasticsearch:
       DB_MYSQL_PASSWORD: "${DB_MYSQL_PASSWORD}"
       DB_MYSQL_NAME: "npm"
     volumes:
-      - ./nginx-proxy-manager/data:/data
-      - ./nginx-proxy-manager/letsencrypt:/etc/letsencrypt
+      - ./data/nginx/nginx-proxy-manager/data:/data
+      - ./data/nginx/nginx-proxy-manager/letsencrypt:/etc/letsencrypt
 
 
   nginx-proxy-manager_db:
@@ -363,31 +364,8 @@ elasticsearch:
       MYSQL_USER: 'npm'
       MYSQL_PASSWORD: '${DB_MYSQL_PASSWORD}'
     volumes:
-      - ./nginx-proxy-manager_db/data/mysql:/var/lib/mysql
+      - ./data/nginx/ginx-proxy-manager_db/data/mysql:/var/lib/mysql
       
-     
-  scylladb:
-    image: scylladb/scylla
-    container_name: scylladb
-    restart: unless-stopped
-    volumes:
-      - ./scylla/data:/var/lib/scylla
-    command: --smp 1 --memory 4G
-    
-    
-  thehive:
-    image: "thehiveproject/thehive4:latest"
-    user: "root"
-    container_name: thehive4
-    restart: unless-stopped
-    depends_on:
-      - scylladb
-    volumes:
-      - ./thehive/application.conf:/etc/thehive/application.conf
-      - ./thehive/data:/opt/thp/thehive/data
-      - ./thehive/index:/opt/thp/thehive/index
-    command: "--no-config --no-config-secret"
-   
 
   rocketchat:
     image: registry.rocket.chat/rocketchat/rocket.chat:latest
@@ -402,7 +380,7 @@ elasticsearch:
         done; (exit $$s)"
     restart: unless-stopped
     volumes:
-      - ./rocketchat/uploads:/app/uploads
+      - ./data/rocketchat/uploads:/app/uploads
     environment:
       PORT: '3000'
       ROOT_URL: 'https://rc.${BASE_DOMAIN}'
@@ -414,21 +392,21 @@ elasticsearch:
       ADMIN_PASS: '${LDAP_ADMIN_PASSWORD}'
       OVERWRITE_SETTING_Show_Setup_Wizard: 'completed'
     depends_on:
-      - mongo
+      - rocketchat_mongo
     expose:
       - '3000'
 
-  mongo:
+  rocketchat_mongo:
     image: mongo:4.0
-    container_name: mongo
+    container_name: rocketchat_mongo
     restart: unless-stopped
     volumes:
-     - ./rocketchat/data/db:/data/db
-     #- ./data/dump:/dump
+     - ./data/rocketchat/data/db:/data/db
     command: mongod --smallfiles --oplogSize 128 --replSet rs0 --storageEngine=mmapv1
 
   # this container's job is just run the command to initialize the replica set.
   # it will run the command and remove himself (it will not stay running)
+
   mongo-init-replica:
     image: mongo:4.0
     command: >
@@ -443,16 +421,16 @@ elasticsearch:
           sleep 5;
         done; (exit $$s)"
     depends_on:
-      - mongo
+      - rocketchat_mongo
 
-#  uptime-kuma:
-#    image: 'louislam/uptime-kuma:1'
-#    container_name: uptime-kuma
-#    restart: unless-stopped
-#    environment:
-#      - NODE_EXTRA_CA_CERTS=/certs/fullchain.crt
-#    volumes:
-#      - ./uptime-kuma:/app/data
-#      - ./uptime-kuma/certs:/certs:ro
-#    expose:
-#      - '3001'
+  uptime-kuma:
+    image: 'louislam/uptime-kuma:1'
+    container_name: uptime-kuma
+    restart: unless-stopped
+    environment:
+      - NODE_EXTRA_CA_CERTS=/certs/fullchain.crt
+    volumes:
+      - ./data/uptime-kuma:/app/data
+      - ./data/uptime-kuma/certs:/certs:ro
+    expose:
+      - '3001'

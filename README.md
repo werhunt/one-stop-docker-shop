@@ -41,6 +41,11 @@ This is a docker compose config designed to build a basic util server providing 
 | dashmachine | admin | admin |
 | nginxproxymanager | admin@example.com | changeme |
 | thehive4 | admin@thehive.local | secret |
+| Cortex |    |    |
+| Elasticsearch| |     |
+| Kibana |   |  |
+| MISP    |  admin@admin.test | admin
+| Shuffle | |    |
 
 ---
 
@@ -106,31 +111,9 @@ Create certificate signed by CA for a server
 
 
 
-## Example of docker-compose (not for production)
-With this docker-compose.yml you will be able to run the following images:
-- The Hive 4.1.0-1
-- Cassandra 3.11
-- Cortex 3.1.0-1
-- Elasticsearch 7.11.1
-- Kibana 7.9.3
-- MISP 2.4.134
-- Mysql 8.0.22
-- Redis 6.0.9
-- Shuffle 0.8.64
 
-## Some Hint
 
-### docker-compose version
-In docker-compose version is set 3.8, to run this version you need at least Docker Engine 19.03.0+ (check widh docker --version) and at least Docker Compose 1.25.5 (check with docker-compose --version)
-```
-Compose file format    Docker Engine release
-3.8                    19.03.0+
-3.7	                   18.06.0+
-3.6	                   18.02.0+
-3.5	                   17.12.0+
-3.4	                   17.09.0+
-```
-If for some reason you have a previous version of Docker Engine or a previous version of Docker Compose and can't upgrade those, you can use 3.7 or 3.6 in docker-compose.yml
+
 
 
 ### Mapping volumes
@@ -284,8 +267,3 @@ In conclusion, after execute ```sudo docker-compose up``` you will have the foll
 | Kibana |  http://localhost:5601 |  |
 | MISP |    https://localhost:443   |  admin@admin.test | admin
 | Shuffle | http://localhost:3001 |    |
-
-
-
-![image](https://user-images.githubusercontent.com/16938405/99674126-e8c99f80-2a75-11eb-9a8b-1603cf67d665.png)
-![image](https://user-images.githubusercontent.com/16938405/99674544-7c02d500-2a76-11eb-92a5-3fbb5c3c5cc5.png)
