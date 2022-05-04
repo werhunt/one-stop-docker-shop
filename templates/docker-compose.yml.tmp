@@ -1,6 +1,130 @@
-version: "3"
-
+version: "3.8"
 services:
+  traefik:
+    container_name: traefik
+    hostname: traefik
+    image: traefik:v2.5
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"
+    command:
+      - --api.insecure=true
+      - --api.dashboard=true
+      - --api.debug=false
+      - --log.level=DEBUG
+      - --providers.docker=true
+      - --entrypoints.web.address=:80
+      - --entrypoints.web-secure.address=:443
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
+      - --serversTransport.insecureSkipVerify=true 
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./vol/traefik/conf/:/etc/traefik/dynamic/
+      - ./vol/traefik/certs/:/etc/certs/
+
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.api.entrypoints=web-secure"
+      - "traefik.http.routers.api.rule=Host(`traefik.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.api.service=api@internal"
+      - "traefik.http.routers.api.tls=true"
+      - "traefik.http.routers.dashboard.entrypoints=web-secure"
+      - "traefik.http.services.api.loadbalancer.server.port=8080"
+      - "traefik.http.routers.api_http.entrypoints=web"
+      - "traefik.http.routers.api_http.rule=Host(`traefik.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.api_http.middlewares=traefik-redirectscheme"
+      - "traefik.http.middlewares.traefik-redirectscheme.redirectscheme.scheme=web-secure"
+
+  cassandra:
+    container_name: cassandra
+    image: cassandra:3.11
+    restart: unless-stopped
+    hostname: cassandra
+    environment:
+      - MAX_HEAP_SIZE=1G
+      - HEAP_NEWSIZE=1G
+      - CASSANDRA_CLUSTER_NAME=thp
+    volumes:
+      - ./data/cassandra/data:/var/lib/cassandra/data
+
+
+  elasticsearch:
+    container_name: elasticsearch
+    image: elasticsearch:7.11.1
+    environment:
+      - http.host=0.0.0.0
+      - discovery.type=single-node
+      - cluster.name=hive
+      - script.allowed_types=inline
+      - thread_pool.search.queue_size=100000
+      - thread_pool.write.queue_size=10000
+      - gateway.recover_after_nodes=1
+      - xpack.security.enabled=false
+      - bootstrap.memory_lock=true
+      - ES_JAVA_OPTS=-Xms256m -Xmx256m
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - ./data/elasticsearch/data:/usr/share/elasticsearch/data
+      - ./data/elasticsearch/logs:/usr/share/elasticsearch/logs
+
+  thehive:
+    container_name: thehive
+    image: 'thehiveproject/thehive4:latest'
+    restart: unless-stopped
+    depends_on:
+      - cassandra
+      - traefik
+    # ports:
+    #   - '0.0.0.0:9000:9000'
+    volumes:
+      - ./configs/thehive/application.conf:/etc/thehive/application.conf
+      - ./data/thehive/data:/opt/data
+      - ./data/thehive/index:/opt/index
+
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.thehive.entrypoints=web-secure"
+      - "traefik.http.routers.thehive.rule=Host(`thehive.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.thehive.service=thehive"
+      - "traefik.http.routers.thehive.tls=true"
+      - "traefik.http.services.thehive.loadbalancer.server.port=9000"
+      - "traefik.http.routers.thehive_http.entrypoints=web"
+      - "traefik.http.routers.thehive_http.rule=Host(`thehive.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.thehive_http.middlewares=traefik-redirectscheme"
+      - "traefik.http.middlewares.traefik-redirectscheme.redirectscheme.scheme=web-secure"
+
+  cortex:
+    container_name: cortex
+    image: thehiveproject/cortex:latest
+    depends_on:
+      - elasticsearch
+      - traefik
+    command:
+      --job-directory /opt/cortex/jobs
+    environment:
+      - 'JOB_DIRECTORY=/opt/cortex/jobs'
+    volumes:
+      - '/var/run/docker.sock:/var/run/docker.sock'
+      - './data/cortex/application.conf:/etc/cortex/application.conf'
+      - './data/cortex/jobs:/opt/cortex/jobs'
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.cortex.entrypoints=web-secure"
+      - "traefik.http.routers.cortex.rule=Host(`cortex.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.cortex.service=cortex"
+      - "traefik.http.routers.cortex.tls=true"
+      - "traefik.http.services.cortex.loadbalancer.server.port=9001"
+      - "traefik.http.routers.cortex_http.entrypoints=web"
+      - "traefik.http.routers.cortex_http.rule=Host(`cortex.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.cortex_http.middlewares=traefik-redirectscheme"
+      - "traefik.http.middlewares.traefik-redirectscheme.redirectscheme.scheme=web-secure"
+
 
   gostatic:
     container_name: gostatic 
@@ -10,6 +134,17 @@ services:
       - "8043"
     volumes:
       - './data/gostatic:/srv/http'
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.gostatic.entrypoints=web-secure"
+      - "traefik.http.routers.gostatic.rule=Host(`go.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.gostatic.service=gostatic"
+      - "traefik.http.routers.gostatic.tls=true"
+      - "traefik.http.services.gostatic.loadbalancer.server.port=8043"
+      - "traefik.http.routers.gostatic_http.entrypoints=web"
+      - "traefik.http.routers.gostatic_http.rule=Host(`go.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.gostatic_http.middlewares=traefik-redirectscheme"
+      - "traefik.http.middlewares.traefik-redirectscheme.redirectscheme.scheme=web-secure"
 
 
   heimdall:
@@ -21,118 +156,19 @@ services:
       - TZ=Europe/London
     volumes:
       - ./data/heimdall:/config
-    expose:
-      - 80
-      - 443
     restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.heimdall.entrypoints=web-secure"
+      - "traefik.http.routers.heimdall.rule=Host(`links.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.heimdall.service=heimdall"
+      - "traefik.http.routers.heimdall.tls=true"
+      - "traefik.http.services.heimdall.loadbalancer.server.port=80"
+      - "traefik.http.routers.heimdall_http.entrypoints=web"
+      - "traefik.http.routers.heimdall_http.rule=Host(`links.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.heimdall_http.middlewares=traefik-redirectscheme"
+      - "traefik.http.middlewares.traefik-redirectscheme.redirectscheme.scheme=web-secure"
 
-
-  # dashmachine:
-  #   container_name: dashmachine
-  #   image: rmountjoy/dashmachine:latest
-  #   restart: "unless-stopped"
-  #   expose:
-  #     - "5000"
-  #   volumes:
-  #     - './data/dashmachine/files:/dashmachine/dashmachine/user_data'
-
-
-  elasticsearch:
-      image: 'docker.elastic.co/elasticsearch/elasticsearch:7.11.1'
-      container_name: elasticsearch
-      restart: unless-stopped
-      expose:
-        - '9200'
-      environment:
-        - http.host=0.0.0.0
-        - discovery.type=single-node
-        - cluster.name=hive
-        - script.allowed_types= inline
-        - thread_pool.search.queue_size=100000
-        - thread_pool.write.queue_size=10000
-        - gateway.recover_after_nodes=1
-        - xpack.security.enabled=false
-        - bootstrap.memory_lock=true
-        - 'ES_JAVA_OPTS=-Xms256m -Xmx256m'
-      ulimits:
-        nofile:
-          soft: 65536
-          hard: 65536
-      volumes:
-        - ./data/elasticsearch/elasticsearch_data:/usr/share/elasticsearch/data
-        - ./data/elasticsearch/elasticsearch_logs:/usr/share/elasticsearch/logs
-
-
-  ### Optional
-    # kibana:
-    #   image: 'docker.elastic.co/kibana/kibana:7.11.1'
-    #   container_name: kibana
-    #   restart: unless-stopped
-    #   depends_on:
-    #     - elasticsearch
-    #   ports:
-    #     - '5601:5601'
-
-  cortex:
-    image: 'thehiveproject/cortex:latest'
-    container_name: cortex
-    restart: unless-stopped
-    volumes:
-      - ./configs/cortex/application.conf:/etc/cortex/application.conf
-      - /var/run/docker.sock:/var/run/docker.sock
-      - /tmp:/tmp
-    environment:
-      - http_proxy=${http_proxy}
-      - https_proxy=${https_proxy}      
-    depends_on:
-      - elasticsearch
-    expose:
-      - '9001'
-
-  cassandra:
-    image: cassandra:3.11
-    container_name: cassandra
-    restart: unless-stopped
-    hostname: cassandra
-    environment:
-      - MAX_HEAP_SIZE=1G
-      - HEAP_NEWSIZE=1G
-      - CASSANDRA_CLUSTER_NAME=thp
-    volumes:
-      - ./data/thehive/cassandra-data:/var/lib/cassandra/data
-
-  thehive:
-    image: 'thehiveproject/thehive4:latest'
-    container_name: thehive
-    restart: unless-stopped
-    depends_on:
-      - cassandra
-    expose:
-      - '9000'
-    volumes:
-      - ./configs/thehive/application.conf:/etc/thehive/application.conf
-      - ./data/thehive/thehive_data:/opt/data
-      - ./data/thehive/index:/opt/index
-    command: '--no-config --no-config-secret'
-
-  redis:
-    image: redis:latest
-    container_name: redis
-    restart: unless-stopped
-
-  misp_mysql:
-    image: mysql:latest
-    container_name: misp_mysql
-    restart: unless-stopped
-    command: --default-authentication-plugin=mysql_native_password
-    restart: unless-stopped
-    environment:
-      - "MYSQL_USER=misp"
-      - "MYSQL_PASSWORD=example"
-      - "MYSQL_ROOT_PASSWORD=password"
-      - "MYSQL_DATABASE=misp"
-    volumes:
-      - ./data/misp_mysql:/var/lib/mysql
 
   misp:
     image: coolacid/misp-docker:core-latest
@@ -145,11 +181,45 @@ services:
       - "80"
       - "443"
     environment:
-      - "HOSTNAME=https://localhost"
+      - "HOSTNAME=https://misp.${BASE_DOMAIN}"
       - "REDIS_FQDN=redis"
       - "INIT=true"             # Initialze MISP, things includes, attempting to import SQL and the Files DIR
       - "CRON_USER_ID=1"        # The MISP user ID to run cron jobs as
       - "DISIPV6=true" # Disable IPV6 in nginx
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.misp.entrypoints=web-secure"
+      - "traefik.http.routers.misp.rule=Host(`misp.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.misp.service=misp"
+      - "traefik.http.routers.misp.tls=true"
+      - "traefik.http.services.misp.loadbalancer.server.port=443"
+      - "traefik.http.services.misp.loadbalancer.server.scheme=https"
+      - "traefik.http.routers.misp_http.entrypoints=web"
+      - "traefik.http.routers.misp_http.rule=Host(`misp.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.misp_http.middlewares=traefik-redirectscheme"
+      - "traefik.http.middlewares.traefik-redirectscheme.redirectscheme.scheme=web-secure"
+
+
+  redis:
+    image: redis:latest
+    container_name: redis
+    restart: unless-stopped
+
+
+  misp_mysql:
+    image: mysql:latest
+    container_name: db
+    restart: unless-stopped
+    command: --default-authentication-plugin=mysql_native_password
+    restart: unless-stopped
+    environment:
+      - "MYSQL_USER=misp"
+      - "MYSQL_PASSWORD=example"
+      - "MYSQL_ROOT_PASSWORD=password"
+      - "MYSQL_DATABASE=misp"
+    volumes:
+      - ./data/misp_mysql:/var/lib/mysql
+
 
   misp-modules:
     image: coolacid/misp-docker:modules-latest
@@ -165,14 +235,25 @@ services:
     image: ghcr.io/frikky/shuffle-frontend:0.8.64
     container_name: shuffle-frontend
     hostname: shuffle-frontend
-    expose:
-      - "80"
-      - "443"
+    # expose:
+    #   - "80"
+    #   - "443"
     environment:
       - BACKEND_HOSTNAME=shuffle-backend
     restart: unless-stopped
     depends_on:
       - shuffle-backend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.shuffle.entrypoints=web-secure"
+      - "traefik.http.routers.shuffle.rule=Host(`shuffle.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.shuffle.service=shuffle"
+      - "traefik.http.routers.shuffle.tls=true"
+      - "traefik.http.services.shuffle.loadbalancer.server.port=80"
+      - "traefik.http.routers.shuffle_http.entrypoints=web"
+      - "traefik.http.routers.shuffle_http.rule=Host(`shuffle.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.shuffle_http.middlewares=traefik-redirectscheme"
+      - "traefik.http.middlewares.traefik-redirectscheme.redirectscheme.scheme=web-secure"
 
 
   shuffle-backend:
@@ -230,38 +311,9 @@ services:
     image: frikky/shuffle:database
     container_name: shuffle-database
     hostname: shuffle-database
-    expose:
-      - "8000"
     restart: unless-stopped
     volumes:
       - ./data/shuffle/shuffle-database:/etc/shuffle
-
-  
-  iptoasn:
-    container_name: "iptoasn"
-    image: "wildactual/iptoasn:latest"
-    restart: "unless-stopped"
-    expose:
-      - "53661"
-    environment:
-      IPTOASN_DBURL: 'http://gostatic:8043/ip2asn-combined.tsv.gz'
-      IPTOASN_PORT: '53661'
-    depends_on: 
-      - gostatic
-  
-
-  ipchecker3000:
-    container_name: "ipchecker3000"
-    image: "wildactual/ipchecker3000"
-    restart: "unless-stopped"
-    expose:
-      - '80'
-    environment: 
-    - IPTOASN_SERVER_IP=iptoasn
-    - IPTOASN_SERVER_PORT=53661
-    depends_on: 
-      - gostatic
-      - iptoasn
 
 
   openldap:
@@ -319,53 +371,18 @@ services:
       - "80"
     depends_on:
       - openldap
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.phpldapadmin.entrypoints=web-secure"
+      - "traefik.http.routers.phpldapadmin.rule=Host(`ldapadmin.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.phpldapadmin.service=phpldapadmin"
+      - "traefik.http.routers.phpldapadmin.tls=true"
+      - "traefik.http.services.phpldapadmin.loadbalancer.server.port=80"
+      - "traefik.http.routers.phpldapadmin_http.entrypoints=web"
+      - "traefik.http.routers.phpldapadmin_http.rule=Host(`ldapadmin.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.phpldapadmin_http.middlewares=traefik-redirectscheme"
+      - "traefik.http.middlewares.traefik-redirectscheme.redirectscheme.scheme=web-secure"
 
-
-  self-service-password: 
-    image: engelhardtm/docker-self-service-password:latest
-    container_name: selfservicepassword
-    restart: "unless-stopped"
-    depends_on:
-      - openldap
-    expose:
-      - '80'
-    volumes:
-      - ./configs/self-service-password/config.inc.php:/var/www/html/conf/config.inc.php
-
-
-  nginx-proxy-manager:
-    image: 'jc21/nginx-proxy-manager:latest'
-    container_name: nginxproxymanager
-    restart: unless-stopped
-    ports:
-      - '80:80'
-      - '81:81'
-      - '443:443'
-    environment:
-      DB_MYSQL_HOST: "nginx-proxy-manager_db"
-      DB_MYSQL_PORT: '3306'
-      DB_MYSQL_USER: "npm"
-      DB_MYSQL_PASSWORD: "${DB_MYSQL_PASSWORD}"
-      DB_MYSQL_NAME: "npm"
-    volumes:
-      - ./data/nginx/nginx-proxy-manager/data:/data
-      - ./data/nginx/nginx-proxy-manager/letsencrypt:/etc/letsencrypt
-
-
-  nginx-proxy-manager_db:
-    image: 'jc21/mariadb-aria:latest'
-    container_name: nginx-proxy-manager_db
-    restart: unless-stopped
-    expose:
-      - '3306'
-    environment:
-      MYSQL_ROOT_PASSWORD: '${DB_MYSQL_PASSWORD}'
-      MYSQL_DATABASE: 'npm'
-      MYSQL_USER: 'npm'
-      MYSQL_PASSWORD: '${DB_MYSQL_PASSWORD}'
-    volumes:
-      - ./data/nginx/ginx-proxy-manager_db/data/mysql:/var/lib/mysql
-      
 
   rocketchat:
     image: registry.rocket.chat/rocketchat/rocket.chat:latest
@@ -384,8 +401,8 @@ services:
     environment:
       PORT: '3000'
       ROOT_URL: 'https://rc.${BASE_DOMAIN}'
-      MONGO_URL: 'mongodb://mongo:27017/rocketchat'
-      MONGO_OPLOG_URL: 'mongodb://mongo:27017/local'
+      MONGO_URL: 'mongodb://rocketchat_mongo:27017/rocketchat'
+      MONGO_OPLOG_URL: 'mongodb://rocketchat_mongo:27017/local'
       Accounts_UseDNSDomainCheck: 'False'
       ADMIN_USERNAME: 'rc_admin'
       ADMIN_EMAIL: 'rc_admin@${BASE_DOMAIN}'
@@ -396,6 +413,7 @@ services:
     expose:
       - '3000'
 
+
   rocketchat_mongo:
     image: mongo:4.0
     container_name: rocketchat_mongo
@@ -404,33 +422,25 @@ services:
      - ./data/rocketchat/data/db:/data/db
     command: mongod --smallfiles --oplogSize 128 --replSet rs0 --storageEngine=mmapv1
 
-  # this container's job is just run the command to initialize the replica set.
-  # it will run the command and remove himself (it will not stay running)
 
-  mongo-init-replica:
-    image: mongo:4.0
-    command: >
-      bash -c
-        "for i in `seq 1 30`; do
-          mongo mongo/rocketchat --eval \"
-            rs.initiate({
-              _id: 'rs0',
-              members: [ { _id: 0, host: 'mongo:27017' } ]})\" &&
-          s=$$? && break || s=$$?;
-          echo \"Tried $$i times. Waiting 5 secs...\";
-          sleep 5;
-        done; (exit $$s)"
+  self-service-password: 
+    image: engelhardtm/docker-self-service-password:latest
+    container_name: selfservicepassword
+    restart: "unless-stopped"
     depends_on:
-      - rocketchat_mongo
-
-  uptime-kuma:
-    image: 'louislam/uptime-kuma:1'
-    container_name: uptime-kuma
-    restart: unless-stopped
-    environment:
-      - NODE_EXTRA_CA_CERTS=/certs/fullchain.crt
-    volumes:
-      - ./data/uptime-kuma:/app/data
-      - ./data/uptime-kuma/certs:/certs:ro
+      - openldap
     expose:
-      - '3001'
+      - '80'
+    volumes:
+      - ./configs/self-service-password/config.inc.php:/var/www/html/conf/config.inc.php
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.selfservicepassword.entrypoints=web-secure"
+      - "traefik.http.routers.selfservicepassword.rule=Host(`pw.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.selfservicepassword.service=selfservicepassword"
+      - "traefik.http.routers.selfservicepassword.tls=true"
+      - "traefik.http.services.selfservicepassword.loadbalancer.server.port=80"
+      - "traefik.http.routers.selfservicepassword_http.entrypoints=web"
+      - "traefik.http.routers.selfservicepassword_http.rule=Host(`pw.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.selfservicepassword_http.middlewares=traefik-redirectscheme"
+      - "traefik.http.middlewares.traefik-redirectscheme.redirectscheme.scheme=web-secure"

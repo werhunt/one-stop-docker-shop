@@ -1,0 +1,447 @@
+version: "3"
+
+services:
+
+  # gostatic:
+  #   container_name: gostatic 
+  #   image: pierrezemb/gostatic:latest
+  #   restart: "unless-stopped"
+  #   expose:
+  #     - "8043"
+  #   volumes:
+  #     - './data/gostatic:/srv/http'
+
+
+  # heimdall:
+  #   image: lscr.io/linuxserver/heimdall:latest
+  #   container_name: heimdall
+  #   environment:
+  #     - PUID=1000
+  #     - PGID=1000
+  #     - TZ=Europe/London
+  #   volumes:
+  #     - ./data/heimdall:/config
+  #   expose:
+  #     - 80
+  #     - 443
+  #   restart: unless-stopped
+
+
+  # dashmachine:
+  #   container_name: dashmachine
+  #   image: rmountjoy/dashmachine:latest
+  #   restart: "unless-stopped"
+  #   expose:
+  #     - "5000"
+  #   volumes:
+  #     - './data/dashmachine/files:/dashmachine/dashmachine/user_data'
+
+
+  elasticsearch:
+      image: 'docker.elastic.co/elasticsearch/elasticsearch:7.11.1'
+      container_name: elasticsearch
+      restart: unless-stopped
+      expose:
+        - '9200'
+      environment:
+        - http.host=0.0.0.0
+        - discovery.type=single-node
+        - cluster.name=hive
+        - script.allowed_types= inline
+        - thread_pool.search.queue_size=100000
+        - thread_pool.write.queue_size=10000
+        - gateway.recover_after_nodes=1
+        - xpack.security.enabled=false
+        - bootstrap.memory_lock=true
+        - 'ES_JAVA_OPTS=-Xms256m -Xmx256m'
+      ulimits:
+        nofile:
+          soft: 65536
+          hard: 65536
+      volumes:
+        - ./data/elasticsearch/elasticsearch_data:/usr/share/elasticsearch/data
+        - ./data/elasticsearch/elasticsearch_logs:/usr/share/elasticsearch/logs
+
+
+  ### Optional
+    # kibana:
+    #   image: 'docker.elastic.co/kibana/kibana:7.11.1'
+    #   container_name: kibana
+    #   restart: unless-stopped
+    #   depends_on:
+    #     - elasticsearch
+    #   ports:
+    #     - '5601:5601'
+
+  cortex:
+    image: 'thehiveproject/cortex:latest'
+    container_name: cortex
+    restart: unless-stopped
+    volumes:
+      - ./configs/cortex/application.conf:/etc/cortex/application.conf
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /tmp:/tmp
+    environment:
+      - http_proxy=${http_proxy}
+      - https_proxy=${https_proxy}      
+    depends_on:
+      - elasticsearch
+    expose:
+      - '9001'
+
+  cassandra:
+    image: cassandra:3.11
+    container_name: cassandra
+    restart: unless-stopped
+    hostname: cassandra
+    environment:
+      - MAX_HEAP_SIZE=1G
+      - HEAP_NEWSIZE=1G
+      - CASSANDRA_CLUSTER_NAME=thp
+    volumes:
+      - ./data/thehive/cassandra-data:/var/lib/cassandra/data
+
+  thehive:
+    image: 'thehiveproject/thehive4:latest'
+    container_name: thehive
+    restart: unless-stopped
+    depends_on:
+      - cassandra
+    expose:
+      - '9000'
+    volumes:
+      - ./configs/thehive/application.conf:/etc/thehive/application.conf
+      - ./data/thehive/thehive_data:/opt/data
+      - ./data/thehive/index:/opt/index
+    command: '--no-config --no-config-secret'
+
+  redis:
+    image: redis:latest
+    container_name: redis
+    restart: unless-stopped
+
+  misp_mysql:
+    image: mysql:latest
+    container_name: db
+    restart: unless-stopped
+    command: --default-authentication-plugin=mysql_native_password
+    restart: unless-stopped
+    environment:
+      - "MYSQL_USER=misp"
+      - "MYSQL_PASSWORD=example"
+      - "MYSQL_ROOT_PASSWORD=password"
+      - "MYSQL_DATABASE=misp"
+    volumes:
+      - ./data/misp_mysql:/var/lib/mysql
+
+  misp:
+    image: coolacid/misp-docker:core-latest
+    container_name: misp
+    restart: unless-stopped
+    depends_on:
+      - redis
+      - misp_mysql
+    expose:
+      - "80"
+      - "443"
+    environment:
+      - "HOSTNAME=https://localhost"
+      - "REDIS_FQDN=redis"
+      - "INIT=true"             # Initialze MISP, things includes, attempting to import SQL and the Files DIR
+      - "CRON_USER_ID=1"        # The MISP user ID to run cron jobs as
+      - "DISIPV6=true" # Disable IPV6 in nginx
+
+  misp-modules:
+    image: coolacid/misp-docker:modules-latest
+    container_name: misp-modules
+    environment:
+      - "REDIS_BACKEND=redis"
+    depends_on:
+      - redis
+      - misp_mysql
+
+
+  frontend:
+    image: ghcr.io/frikky/shuffle-frontend:0.8.64
+    container_name: shuffle-frontend
+    hostname: shuffle-frontend
+    expose:
+      - "80"
+      - "443"
+    environment:
+      - BACKEND_HOSTNAME=shuffle-backend
+    restart: unless-stopped
+    depends_on:
+      - shuffle-backend
+
+
+  shuffle-backend:
+    image: ghcr.io/frikky/shuffle-backend:0.8.64
+    container_name: shuffle-backend
+    hostname: shuffle-backend
+    expose:
+      - "5001"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data/shuffle/shuffle-apps:/shuffle-apps
+      - ./data/shuffle/shuffle-files:/shuffle-files
+    environment:
+      - DATASTORE_EMULATOR_HOST=shuffle-database:8000
+      - SHUFFLE_APP_HOTLOAD_FOLDER=./shuffle-apps
+      - SHUFFLE_FILE_LOCATION=./shuffle-files
+      - ORG_ID=Shuffle
+      - SHUFFLE_APP_DOWNLOAD_LOCATION=https://github.com/frikky/shuffle-apps
+      - SHUFFLE_DEFAULT_USERNAME=admin
+      - SHUFFLE_DEFAULT_PASSWORD=password
+      - SHUFFLE_DEFAULT_APIKEY=mysecretkey
+      - SHUFFLE_APP_FORCE_UPDATE=false
+      - HTTP_PROXY=
+      - HTTPS_PROXY=
+    restart: unless-stopped
+    depends_on:
+      - shuffle-database
+
+
+  orborus:
+    image: ghcr.io/frikky/shuffle-orborus:0.8.63
+    container_name: shuffle-orborus
+    hostname: shuffle-orborus
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - SHUFFLE_APP_SDK_VERSION=0.8.60
+      - SHUFFLE_WORKER_VERSION=0.8.63
+      - ORG_ID=Shuffle
+      - ENVIRONMENT_NAME=Shuffle
+      - BASE_URL=http://shuffle-backend:5001
+      - DOCKER_API_VERSION=1.40
+      - HTTP_PROXY=
+      - HTTPS_PROXY=
+      - SHUFFLE_PASS_WORKER_PROXY=False
+      - SHUFFLE_ORBORUS_EXECUTION_TIMEOUT=600
+      - SHUFFLE_BASE_IMAGE_NAME=frikky
+      - SHUFFLE_BASE_IMAGE_REGISTRY=ghcr.io
+      - SHUFFLE_BASE_IMAGE_TAG_SUFFIX="-0.8.60"
+      - CLEANUP=false      
+    restart: unless-stopped
+  
+
+  shuffle-database:
+    image: frikky/shuffle:database
+    container_name: shuffle-database
+    hostname: shuffle-database
+    expose:
+      - "8000"
+    restart: unless-stopped
+    volumes:
+      - ./data/shuffle/shuffle-database:/etc/shuffle
+
+  
+  iptoasn:
+    container_name: "iptoasn"
+    image: "wildactual/iptoasn:latest"
+    restart: "unless-stopped"
+    expose:
+      - "53661"
+    environment:
+      IPTOASN_DBURL: 'http://gostatic:8043/ip2asn-combined.tsv.gz'
+      IPTOASN_PORT: '53661'
+    depends_on: 
+      - gostatic
+  
+
+  ipchecker3000:
+    container_name: "ipchecker3000"
+    image: "wildactual/ipchecker3000"
+    restart: "unless-stopped"
+    expose:
+      - '80'
+    environment: 
+    - IPTOASN_SERVER_IP=iptoasn
+    - IPTOASN_SERVER_PORT=53661
+    depends_on: 
+      - gostatic
+      - iptoasn
+
+
+  openldap:
+    image: osixia/openldap:latest
+    container_name: openldap
+    restart: "unless-stopped"
+    domainname: "${BASE_DOMAIN}"
+    hostname: "ldap.${BASE_DOMAIN}"
+    environment:
+      LDAP_LOG_LEVEL: "256"
+      LDAP_ORGANISATION: "Example Inc."
+      LDAP_DOMAIN: "${BASE_DOMAIN}"
+      LDAP_BASE_DN: "${LDAP_BASE_DN}"
+      LDAP_ADMIN_PASSWORD: "${LDAP_ADMIN_PASSWORD}"
+      LDAP_CONFIG_PASSWORD: "config"
+      LDAP_READONLY_USER: "false"
+      LDAP_READONLY_USER_USERNAME: "readonly"
+      LDAP_READONLY_USER_PASSWORD: "readonly"
+      LDAP_RFC2307BIS_SCHEMA: "false"
+      LDAP_BACKEND: "mdb"
+      LDAP_TLS: "true"
+      LDAP_TLS_CRT_FILENAME: "ldap.crt"
+      LDAP_TLS_KEY_FILENAME: "ldap.key"
+      LDAP_TLS_CA_CRT_FILENAME: "ca.crt"
+      LDAP_TLS_ENFORCE: "false"
+      LDAP_TLS_CIPHER_SUITE: "SECURE256:-VERS-SSL3.0"
+      LDAP_TLS_PROTOCOL_MIN: "3.1"
+      LDAP_TLS_VERIFY_CLIENT: "try"
+      LDAP_REPLICATION: "false"
+      #LDAP_REPLICATION_CONFIG_SYNCPROV: "binddn="cn=admin,cn=config" bindmethod=simple credentials=$LDAP_CONFIG_PASSWORD searchbase="cn=config" type=refreshAndPersist retry="60 +" timeout=1 starttls=critical"
+      #LDAP_REPLICATION_DB_SYNCPROV: "binddn="cn=admin,$LDAP_BASE_DN" bindmethod=simple credentials=$LDAP_ADMIN_PASSWORD searchbase="$LDAP_BASE_DN" type=refreshAndPersist interval=00:00:00:10 retry="60 +" timeout=1 starttls=critical"
+      #docker-compose.ymlLDAP_REPLICATION_HOSTS: "#PYTHON2BASH:['ldap://ldap.XXXX.YYYY','ldap://ldap2.XXXX.YYYY']"
+      KEEP_EXISTING_CONFIG: "false"
+      LDAP_REMOVE_CONFIG_AFTER_SETUP: "true"
+      LDAP_SSL_HELPER_PREFIX: "ldap"
+    tty: true
+    stdin_open: true
+    volumes:
+      - ./data/openldap/ldap:/var/lib/ldap
+      - ./data/openldap/slapd:/etc/ldap/slapd.d
+      - ./data/openldap/certs:/container/service/slapd/assets/certs/
+    ports:
+      - "389:389"
+      - "636:636"
+
+
+  phpldapadmin:
+    image: osixia/phpldapadmin:latest
+    container_name: phpldapadmin
+    restart: "unless-stopped"
+    environment:
+      PHPLDAPADMIN_LDAP_HOSTS: "openldap"
+      PHPLDAPADMIN_HTTPS: "false"
+    expose:
+      - "80"
+    depends_on:
+      - openldap
+
+
+  self-service-password: 
+    image: engelhardtm/docker-self-service-password:latest
+    container_name: selfservicepassword
+    restart: "unless-stopped"
+    depends_on:
+      - openldap
+    expose:
+      - '80'
+    volumes:
+      - ./configs/self-service-password/config.inc.php:/var/www/html/conf/config.inc.php
+
+
+  nginx-proxy-manager:
+    image: 'jc21/nginx-proxy-manager:latest'
+    container_name: nginxproxymanager
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '81:81'
+      - '443:443'
+    environment:
+      DB_MYSQL_HOST: "nginx-proxy-manager_db"
+      DB_MYSQL_PORT: '3306'
+      DB_MYSQL_USER: "npm"
+      DB_MYSQL_PASSWORD: "${DB_MYSQL_PASSWORD}"
+      DB_MYSQL_NAME: "npm"
+    volumes:
+      - ./data/nginx/nginx-proxy-manager/data:/data
+      - ./data/nginx/nginx-proxy-manager/letsencrypt:/etc/letsencrypt
+
+
+  nginx-proxy-manager_db:
+    image: 'jc21/mariadb-aria:latest'
+    container_name: nginx-proxy-manager_db
+    restart: unless-stopped
+    expose:
+      - '3306'
+    environment:
+      MYSQL_ROOT_PASSWORD: '${DB_MYSQL_PASSWORD}'
+      MYSQL_DATABASE: 'npm'
+      MYSQL_USER: 'npm'
+      MYSQL_PASSWORD: '${DB_MYSQL_PASSWORD}'
+    volumes:
+      - ./data/nginx/ginx-proxy-manager_db/data/mysql:/var/lib/mysql
+      
+
+  rocketchat:
+    image: registry.rocket.chat/rocketchat/rocket.chat:latest
+    container_name: rocketchat
+    command: >
+      bash -c
+        "for i in `seq 1 30`; do
+          node main.js &&
+          s=$$? && break || s=$$?;
+          echo \"Tried $$i times. Waiting 5 secs...\";
+          sleep 5;
+        done; (exit $$s)"
+    restart: unless-stopped
+    volumes:
+      - ./data/rocketchat/uploads:/app/uploads
+    environment:
+      PORT: '3000'
+      ROOT_URL: 'https://rc.${BASE_DOMAIN}'
+      MONGO_URL: 'mongodb://mongo:27017/rocketchat'
+      MONGO_OPLOG_URL: 'mongodb://mongo:27017/local'
+      Accounts_UseDNSDomainCheck: 'False'
+      ADMIN_USERNAME: 'rc_admin'
+      ADMIN_EMAIL: 'rc_admin@${BASE_DOMAIN}'
+      ADMIN_PASS: '${LDAP_ADMIN_PASSWORD}'
+      OVERWRITE_SETTING_Show_Setup_Wizard: 'completed'
+    depends_on:
+      - rocketchat_mongo
+    expose:
+      - '3000'
+
+  rocketchat_mongo:
+    image: mongo:4.0
+    container_name: rocketchat_mongo
+    restart: unless-stopped
+    volumes:
+     - ./data/rocketchat/data/db:/data/db
+    command: mongod --smallfiles --oplogSize 128 --replSet rs0 --storageEngine=mmapv1
+
+  # this container's job is just run the command to initialize the replica set.
+  # it will run the command and remove himself (it will not stay running)
+
+  mongo-init-replica:
+    image: mongo:4.0
+    command: >
+      bash -c
+        "for i in `seq 1 30`; do
+          mongo mongo/rocketchat --eval \"
+            rs.initiate({
+              _id: 'rs0',
+              members: [ { _id: 0, host: 'mongo:27017' } ]})\" &&
+          s=$$? && break || s=$$?;
+          echo \"Tried $$i times. Waiting 5 secs...\";
+          sleep 5;
+        done; (exit $$s)"
+    depends_on:
+      - rocketchat_mongo
+
+  uptime-kuma:
+    image: 'louislam/uptime-kuma:1'
+    container_name: uptime-kuma
+    restart: unless-stopped
+    environment:
+      - NODE_EXTRA_CA_CERTS=/certs/fullchain.crt
+    volumes:
+      - ./data/uptime-kuma:/app/data
+      - ./data/uptime-kuma/certs:/certs:ro
+    expose:
+      - '3001'
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.selfservicepassword.entrypoints=web-secure"
+      - "traefik.http.routers.selfservicepassword.rule=Host(`pw.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.selfservicepassword.service=selfservicepassword"
+      - "traefik.http.routers.selfservicepassword.tls=true"
+      - "traefik.http.services.selfservicepassword.loadbalancer.server.port=80"
+      - "traefik.http.routers.selfservicepassword_http.entrypoints=web"
+      - "traefik.http.routers.selfservicepassword_http.rule=Host(`pw.${BASE_DOMAIN}`)"
+      - "traefik.http.routers.selfservicepassword_http.middlewares=traefik-redirectscheme"
+      - "traefik.http.middlewares.traefik-redirectscheme.redirectscheme.scheme=web-secure"
